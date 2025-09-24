@@ -1,170 +1,95 @@
 import os
 import discord
 from discord.ext import commands
+import math
+from scipy.stats import poisson
 
+# Configuration des intents
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-@bot.command()
-async def c(ctx, *, valeurs):
-    try:
-        # Séparer les valeurs par espaces et les convertir en float
-        valeurs = [float(v) for v in valeurs.split()]
+@bot.event
+async def on_ready():
+    print(f'{bot.user} est connecté à Discord!')
 
-        # Calculer l'expression 1 / (1 - (1 - (1/valeur1)) * (1 - (1/valeur2)) * ...)
+@bot.command(name='c')
+async def calculate_combined_odds(ctx, *, valeurs):
+    """Calcule l'expression combinée pour plusieurs valeurs"""
+    try:
+        valeurs = [float(v) for v in valeurs.split()]
+        
         result = 1
         for v in valeurs:
+            if v == 0:
+                await ctx.send("Erreur: Division par zéro détectée!")
+                return
             result *= (1 - (1/v))
+        
+        if result == 1:
+            await ctx.send("Erreur: Résultat indéfini (division par zéro)!")
+            return
+            
         result = 1 / (1 - result)
-
-        # Envoyer le résultat
-        await ctx.send(f"Le résultat est: {result}")
+        await ctx.send(f"Le résultat est: {result:.4f}")
+        
+    except ValueError:
+        await ctx.send("Erreur: Veuillez entrer des nombres valides séparés par des espaces.")
     except Exception as e:
         await ctx.send(f"Erreur: {str(e)}")
 
-@bot.command()
-async def l(ctx, valeur: float):
+@bot.command(name='l')
+async def calculate_single_odds(ctx, valeur: float):
+    """Calcule l'expression 1 / (1 - 1 / valeur)"""
     try:
-        # Calculer l'expression 1 / (1 - 1 / valeur)
+        if valeur == 0:
+            await ctx.send("Erreur: Division par zéro!")
+            return
+        if valeur == 1:
+            await ctx.send("Erreur: Résultat indéfini!")
+            return
+            
         result = 1 / (1 - 1 / valeur)
-
-        # Envoyer le résultat
-        await ctx.send(f"Le résultat est: {result}")
+        await ctx.send(f"Le résultat est: {result:.4f}")
+        
     except Exception as e:
         await ctx.send(f"Erreur: {str(e)}")
 
-@bot.command()
-async def kel(ctx, cote_observee: float, cote_reelle: float):
+@bot.command(name='kel')
+async def kelly_criterion(ctx, cote_observee: float, cote_reelle: float):
+    """Calcule le critère de Kelly"""
     try:
+        if cote_observee <= 1 or cote_reelle <= 0:
+            await ctx.send("Erreur: Les cotes doivent être positives et la cote observée > 1")
+            return
+            
         kelly_criterion = 1/cote_reelle - (1-1/cote_reelle)/(cote_observee-1)
-
-        # Calculer les différents résultats demandés
+        
         kelly_100 = kelly_criterion * 100
         kelly_2 = kelly_100 / 2
         kelly_4 = kelly_100 / 4
         kelly_6 = kelly_100 / 6
         kelly_8 = kelly_100 / 8
-
-                # Envoyer le résultat
-        await ctx.send(f"Kelly : {kelly_100:.2f}\n"
-                               f"Kelly /2 : {kelly_2:.2f}\n"
-                               f"Kelly /4 : {kelly_4:.2f}\n"
-                               f"Kelly /6 : {kelly_6:.2f}\n"    
-                               f"Kelly /8 : {kelly_8:.2f}")
+        
+        await ctx.send(f"**Critère de Kelly:**\n"
+                      f"Kelly : {kelly_100:.2f}%\n"
+                      f"Kelly /2 : {kelly_2:.2f}%\n"
+                      f"Kelly /4 : {kelly_4:.2f}%\n"
+                      f"Kelly /6 : {kelly_6:.2f}%\n"
+                      f"Kelly /8 : {kelly_8:.2f}%")
+                      
     except Exception as e:
         await ctx.send(f"Erreur: {str(e)}")
 
-@bot.command()
-async def xg(ctx, variable: float):
+@bot.command(name='xg')
+async def calculate_xg(ctx, variable: float):
+    """Calcule l'expression xG"""
     try:
-        # Calculer l'expression 1 / (1 - 0.9 ** (variable * 10))
-        result = 1 / (1 - 0.9 ** (variable * 10))
-
-        # Envoyer le résultat
-        await ctx.send(f"Le résultat pour la variable {variable} est: {result:.4f}")
-    except Exception as e:
-        await ctx.send(f"Erreur: {str(e)}")
-
-
-
-@bot.command(name="mmax")
-async def mise_max(ctx, cote: float, gainmax: float = 100):
-    try:
-        # Vérification pour éviter une division par zéro
-        if cote <= 1:
-            await ctx.send("La cote doit être strictement supérieure à 1.")
+        exponent = variable * 10
+        if exponent > 700:  # Éviter l'overflow
+            await ctx.send("Erreur: Valeur trop grande, risque de débordement!")
             return
-
-        # Calcul de la mise max
-        mise = gainmax / (cote - 1)
-
-        # Envoi du résultat
-        await ctx.send(f"Pour une cote de {cote} et un gain max de {gainmax}, "
-                       f"la mise maximale est: {mise:.2f}")
-    except Exception as e:
-        await ctx.send(f"Erreur: {str(e)}")
-
-@bot.command()
-async def mpto(ctx, cote1: float, cote2: float):
-    try:
-        A3 = cote1
-        B3 = cote2
-
-        # Calculs des deux formules
-        M_A = (2 * A3) / (2 - ((1 / A3 + 1 / B3) - 1) * A3)
-        M_B = (2 * B3) / (2 - ((1 / A3 + 1 / B3) - 1) * B3)
-
-        # Envoi des résultats
-        await ctx.send(f"odds 1 ({A3}): {M_A:.4f}\n"
-                       f"odds 2 ({B3}): {M_B:.4f}")
-    except Exception as e:
-        await ctx.send(f"Erreur: {str(e)}")
-
-import math
-from scipy.stats import poisson
-
-import math
-from scipy.stats import poisson
-
-@bot.command()
-async def poi(ctx, k: int, lambda_decimal: float):
-    try:
-        # On veut que P(X >= 1) = 1 / lambda_decimal
-        target_prob = 1 / lambda_decimal
-
-        # Plage de recherche pour lambda
-        lower_bound = 0.01  # Valeur minimale possible pour lambda
-        upper_bound = 1000  # Valeur maximale possible pour lambda
-        epsilon = 0.00001  # Précision de la recherche
-
-        # Recherche binaire
-        while upper_bound - lower_bound > epsilon:
-            lambda_test = (lower_bound + upper_bound) / 2
-            prob_less_than_k = poisson.cdf(k-1, lambda_test)
-            prob_at_least_k = 1 - prob_less_than_k
-
-            # Ajuster les bornes en fonction du résultat
-            if prob_at_least_k > target_prob:
-                upper_bound = lambda_test  # Réduire la plage supérieure
-            else:
-                lower_bound = lambda_test  # Réduire la plage inférieure
-
-        # Le lambda final trouvé
-        lambda_guess = (lower_bound + upper_bound) / 2
-
-        # Calcul des xG pour les différents types de buts
-        xg_open_play = 0.9 * lambda_guess
-        xg_penalty = 0.075 * lambda_guess
-        xg_own_goals = 0.67 * lambda_guess
-
-        # Envoi du résultat sous forme de message
-        await ctx.send(f"L'équipe marquera {lambda_guess:.5f} buts.\n"
-                       f"Le jeu ouvert marque {xg_open_play:.5f} xG.\n"
-                       f"Le marqueur de penalty aura {xg_penalty:.5f} xG.\n"
-                       f"Il y aura {xg_own_goals:.5f} xA a la passe.")
-
-    except Exception as e:
-        await ctx.send(f"Erreur: {str(e)}")
-
-@bot.command()
-async def sub(ctx, valeur: float, temps: int, D2: float = 1):
-    try:
-        tim = temps / 90
-        Orbit = valeur
-        time = tim
-
-        result = 1 / ((1 / Orbit) + ((1 / Orbit) * D2 * ((1 - time) / time)) - (((1 / Orbit) * (1 / Orbit)) * D2 * ((1 - time) / time)))
-
-        await ctx.send(f"Le résultat est: {result}")
-    except Exception as e:
-        await ctx.send(f"Erreur: {str(e)}")
-
-
-
-
-
-
-
-token = os.environ['izy']
-bot.run(token)
+            
+        base_calc = 0.9 ** exponent
+        if base_calc == 1:
+            await ctx.send("
